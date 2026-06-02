@@ -55,10 +55,12 @@ For windows use [this](https://www.geeksforgeeks.org/how-to-install-ffmpeg-on-wi
 
 Setup conda env:
 ```shell
-conda env create -f environment.yml
-conda activate omnicontrol
+conda create -n mld python=3.9 -y
+conda activate mld
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --no-build-isolation chumpy==0.70
+python -m pip install -r requirements.txt
 python -m spacy download en_core_web_sm
-pip install git+https://github.com/openai/CLIP.git
 ```
 
 Download dependencies:
