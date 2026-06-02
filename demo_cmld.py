@@ -4,6 +4,7 @@ import time
 from builtins import ValueError
 from multiprocessing.sharedctypes import Value
 from pathlib import Path
+from types import SimpleNamespace
 import torch.nn.functional as F
 import numpy as np
 import torch
@@ -12,17 +13,37 @@ from torch.utils.data import ConcatDataset, DataLoader
 # from torchsummary import summary
 from tqdm import tqdm
 from mld.config import parse_args
-# from mld.datasets.get_dataset import get_datasets
-from mld.data.get_data import get_datasets
 from mld.data.sampling import subsample, upsample
 from mld.models.get_model import get_model
 from mld.utils.logger import create_logger
 from mld.models.architectures.mld_style_encoder import StyleClassification
 from mld.utils.demo_utils import load_example_input
 from mld.data.humanml.utils.plot_script import plot_3d_motion
+from mld.data.humanml.scripts.motion_process import recover_from_ric
 from moviepy.editor import VideoFileClip
+from os.path import join as pjoin
 
 t2m_kinematic_chain = [[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15], [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]]
+
+
+class DemoHumanML3DDataModule:
+    def __init__(self, cfg):
+        data_root = cfg.DATASET.HUMANML3D.ROOT
+        self.nfeats = 263
+        self.njoints = 22
+        self.hparams = SimpleNamespace(
+            mean=np.load(pjoin(data_root, "Mean.npy")),
+            std=np.load(pjoin(data_root, "Std.npy")),
+        )
+
+    def feats2joints(self, features):
+        mean = torch.tensor(self.hparams.mean).to(features)
+        std = torch.tensor(self.hparams.std).to(features)
+        features = features * std + mean
+        return recover_from_ric(features, self.njoints)
+
+    def feats2joints_wo_norm(self, features):
+        return self.feats2joints(features)
 
 def build_dict_from_txt(filename):
     result_dict = {}
@@ -42,6 +63,33 @@ def convert_mp4_to_gif(input_file, output_file, resize=None):
     clip = VideoFileClip(input_file)
     clip.write_gif(output_file, fps=20)
 
+
+def load_checkpoint_state_dict(path):
+    state_dict = torch.load(path, map_location="cpu")
+    return state_dict["state_dict"] if "state_dict" in state_dict else state_dict
+
+
+def filter_state_dict_by_shape(model, state_dict):
+    model_state_dict = model.state_dict()
+    filtered_state_dict = {}
+    skipped_keys = []
+
+    for key, value in state_dict.items():
+        if key in model_state_dict and model_state_dict[key].shape != value.shape:
+            skipped_keys.append(key)
+            continue
+        filtered_state_dict[key] = value
+
+    return filtered_state_dict, skipped_keys
+
+
+def get_style_class_count(style_dict):
+    for key, value in style_dict.items():
+        if key.endswith("classifier.weight"):
+            return value.shape[0]
+    raise ValueError("Cannot infer style class count from classifier weights.")
+
+
 def main():    
     cfg = parse_args(phase="demo")
     cfg.FOLDER = cfg.TEST.FOLDER
@@ -54,34 +102,41 @@ def main():
     
     # loading checkpoints
     logger.info("Loading checkpoints from {}".format(cfg.TEST.CHECKPOINTS))
-    state_dict = torch.load(cfg.TEST.CHECKPOINTS,
-                            map_location="cpu")["state_dict"]
+    state_dict = load_checkpoint_state_dict(cfg.TEST.CHECKPOINTS)
 
-    from collections import OrderedDict
-    mld_state_dict = torch.load(cfg.TRAIN.PRETRAINED_MLD,
-                            map_location="cpu")["state_dict"]
-    
-    vae_state_dict = torch.load(cfg.TRAIN.PRETRAINED_VAE,
-                                map_location="cpu")["state_dict"]
-        
-    # load dataset to extract nfeats dim of model
+    # Demo only needs HumanML3D stats and feature-to-joint conversion.
     # cuda options
     if cfg.ACCELERATOR == "gpu":
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
             str(x) for x in cfg.DEVICE)
         device = torch.device("cuda")
-    dataset = get_datasets(cfg, logger=logger, phase="test")[0]
+    dataset = DemoHumanML3DDataModule(cfg)
+    cfg.DATASET.NFEATS = dataset.nfeats
+    cfg.DATASET.NJOINTS = dataset.njoints
     model = get_model(cfg, dataset)
+    state_dict, skipped_keys = filter_state_dict_by_shape(model, state_dict)
+    if skipped_keys:
+        logger.info("Skipping incompatible checkpoint tensors:\n{}".format(
+            "\n".join(skipped_keys)))
     model.load_state_dict(state_dict, strict=False)
 
-    style_dict = torch.load(cfg.TRAIN.PRETRAINED_STYLE)
+    style_dict = load_checkpoint_state_dict(cfg.TRAIN.PRETRAINED_STYLE)
     model.style_function.load_state_dict(style_dict, strict=True)
     
-    style_dict = torch.load("./save/style_encoder.pt")
-    style_class = StyleClassification(nclasses=100)#.cuda()
-    style_class.load_state_dict(style_dict, strict=True)
+    label_style_path = "./experiments/style_encoder.pt"
+    if os.path.exists(label_style_path):
+        label_style_dict = load_checkpoint_state_dict(label_style_path)
+    else:
+        logger.info("{} not found; using {} for demo style labels.".format(
+            label_style_path, cfg.TRAIN.PRETRAINED_STYLE))
+        label_style_dict = style_dict
+
+    style_class_count = get_style_class_count(label_style_dict)
+    style_class = StyleClassification(nclasses=style_class_count)#.cuda()
+    style_class.load_state_dict(label_style_dict, strict=True)
     
-    dict_path = "./datasets/100STYLE_name_dict.txt"
+    dict_name = "100STYLE_name_dict_Filter.txt" if style_class_count == 47 else "100STYLE_name_dict.txt"
+    dict_path = pjoin("./datasets", dict_name)
     label_to_motion = build_dict_from_txt(dict_path)
     
     logger.info("model {} loaded".format(cfg.model.model_type))
@@ -148,7 +203,8 @@ def main():
                         probabilities = F.softmax(logits, dim=1)
 
                         predicted = torch.argmax(probabilities).item()
-                        motion_name = label_to_motion[str(predicted)]
+                        motion_name = label_to_motion.get(str(predicted),
+                                                          str(predicted))
                         predict_label.append(motion_name)
                     # cal inference time
 

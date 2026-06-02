@@ -38,3 +38,6 @@ dataset
 body_models
 results
 save
+experiments
+checkpoints
+deps

@@ -4,6 +4,17 @@ from omegaconf import OmegaConf
 import os
 
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in ("true", "1", "yes", "y"):
+        return True
+    if value in ("false", "0", "no", "n"):
+        return False
+    raise ValueError(f"Expected a boolean value, got {value}")
+
+
 def get_module_config(cfg_model, path="modules"):
     files = os.listdir(f'./configs/{path}/')
     for file in files:
@@ -67,6 +78,33 @@ def parse_args(phase="train"):
                            type=str,
                            required=False,
                            help="evaluate existing npys")
+        group.add_argument("--guidance_mode",
+                           type=str,
+                           required=False,
+                           choices=["v0", "v2", "v4"],
+                           help="override model.guidance_mode")
+        group.add_argument("--guidance_scale_style",
+                           type=float,
+                           required=False,
+                           help="override model.guidance_scale_style")
+        group.add_argument("--is_test",
+                           type=str2bool,
+                           nargs="?",
+                           const=True,
+                           required=False,
+                           help="override test-mode flags")
+        group.add_argument("--is_guidance",
+                           type=str2bool,
+                           nargs="?",
+                           const=True,
+                           required=False,
+                           help="override model.is_guidance")
+        group.add_argument("--is_recon",
+                           type=str2bool,
+                           nargs="?",
+                           const=True,
+                           required=False,
+                           help="override reconstruction-mode flags")
 
     if phase == "demo":
         # group.add_argument("--motion_transfer", action='store_true', help="Motion Distribution Transfer")
@@ -162,6 +200,20 @@ def parse_args(phase="train"):
     cfg_model = get_module_config(cfg_exp.model, cfg_exp.model.target)
     cfg_assets = OmegaConf.load(params.cfg_assets)
     cfg = OmegaConf.merge(cfg_exp, cfg_model, cfg_assets)
+
+    if phase in ["train", "test", "demo"]:
+        if params.guidance_mode is not None:
+            cfg.model.guidance_mode = params.guidance_mode
+        if params.guidance_scale_style is not None:
+            cfg.model.guidance_scale_style = params.guidance_scale_style
+        if params.is_test is not None:
+            cfg.model.is_test = params.is_test
+            cfg.TRAIN.ABLATION.TEST = params.is_test
+        if params.is_guidance is not None:
+            cfg.model.is_guidance = params.is_guidance
+        if params.is_recon is not None:
+            cfg.model.is_recon = params.is_recon
+            cfg.TRAIN.ABLATION.RECON = params.is_recon
 
     if phase in ["train", "test"]:
         cfg.TRAIN.BATCH_SIZE = (params.batch_size

@@ -67,7 +67,6 @@ Download dependencies:
 
 ```bash
 bash prepare/download_smpl_files.sh
-bash prepare/download_glove.sh
 bash prepare/download_t2m_evaluators.sh
 ```
 
@@ -80,15 +79,18 @@ bash prepare/download_t2m_evaluators.sh
 then copy the result dataset to our repository:
 
 ```shell
-cp -r ../HumanML3D/HumanML3D ./dataset/HumanML3D
+cp -r ../HumanML3D/HumanML3D ./datasets
 ```
 
-**100STYLE** - Download the dataset from Google Drive, then copy the files in texts, new_joints, and new_joint_vecs into their corresponding directories within ./dataset/HumanML3D. We use indices larger than 030000 to represent data from the 100STYLE dataset.
+**100STYLE** - Download the dataset from Google Drive, then copy the files in texts, new_joints, and new_joint_vecs into their corresponding directories within ./datasets. We use indices larger than 030000 to represent data from the 100STYLE dataset.
 
 ### 3. Download the pretrained models
 
-1. Download the model(s) you wish to use, then unzip and place them in `./save/`. 
-2. Download the pretrained model from [MLD](https://github.com/ChenFengYe/motion-latent-diffusion) and then copy it to `./save/`. 
+1. Download the model(s) you wish to use, then unzip and place them in `./experiments/`.
+2. Download the pretrained model of [MLD](https://github.com/ChenFengYe/motion-latent-diffusion):
+```bash
+prepare/download_pretrained_models.sh
+```
 
 
 ## Motion Synthesis
@@ -98,8 +100,12 @@ bash demo.sh
 ```
 
 Tips:
-1. For some motion styles, the default parameter settings may not achieve the desired results. You can modify the `guidance_scale_style` in `config_cmld_humanml3d.yaml` to achieve a better balance between content preservation and style reflection.
-2. Make sure to set `is_test: True`.
+1. `demo.sh` sets demo defaults through command-line arguments, including `--is_test true`, `--guidance_mode v4`, and `--is_guidance true`.
+2. For some motion styles, the default parameter settings may not achieve the desired results. You can pass `--guidance_scale_style` to balance content preservation and style reflection, for example:
+```shell
+bash demo.sh --guidance_scale_style 3.0
+```
+3. For further mesh visualization, please check [MLD](https://github.com/ChenFengYe/motion-latent-diffusion/tree/main#-visualization) repo.
 
 ## Train your own SMooDi
 You can train your own model via
@@ -108,9 +114,12 @@ bash train.sh
 ```
 
 Tips:
-1. In `config_cmld_humanml3d.yaml`, set `is_recon: True` means that cycle loss will not be used during training. 
-2. In `config_cmld_humanml3d.yaml`, set `guidance_mode: v0` for training.
-3. In fact, the improvement in performance from cycle loss is quite limited. If you want to quickly train a model, you can set `is_recon: True`. With this setting, it will take nearly 50 minutes to train 50 epochs on an A5000 GPU and achieve performance nearly equivalent to the second row in Table 3 of our paper. 
+1. `train.sh` sets training defaults through command-line arguments, including `--is_test false` and `--guidance_mode v0`.
+2. Passing `--is_recon true` disables cycle loss during training:
+```shell
+bash train.sh --is_recon true
+```
+3. In fact, the improvement in performance from cycle loss is quite limited. With `--is_recon true`, it will take nearly 50 minutes to train 50 epochs on an A5000 GPU and achieve performance nearly equivalent to the second row in Table 3 of our paper.
 
 
 ## Evaluate
@@ -121,9 +130,16 @@ bash test.sh
 
 
 Tips:
-1. In `config_cmld_humanml3d.yaml`, set `guidance_mode: v2 or v4` for evaluation.
-2. Make sure to set `is_test: True` during evaluation.
-3. In `config_cmld_humanml3d.yaml`, set `is_guidance: True` means that classifier-based style guidance will be used during evaluation. If `is_guidance: False`, evaluation will take nearly 50 minutes, whereas it will take 4 hours if `is_guidance: True` on an A5000 GPU.
+1. `test.sh` sets evaluation defaults through command-line arguments, including `--is_test true`, `--guidance_mode v4`, and `--is_guidance true`.
+2. To evaluate with a different guidance mode, pass it directly:
+```shell
+bash test.sh --guidance_mode v2
+```
+3. `--is_guidance true` enables classifier-based style guidance during evaluation. Use `--is_guidance false` to disable it:
+```shell
+bash test.sh --is_guidance false
+```
+
 
 ## Acknowledgments
 
