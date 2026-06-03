@@ -66,7 +66,7 @@ python -m spacy download en_core_web_sm
 Download dependencies:
 
 ```bash
-bash prepare/download_smpl_files.sh
+bash prepare/download_smpl_model.sh
 bash prepare/download_t2m_evaluators.sh
 ```
 
@@ -89,7 +89,7 @@ cp -r ../HumanML3D/HumanML3D ./datasets
 1. Download the model(s) you wish to use, then unzip and place them in `./experiments/`.
 2. Download the pretrained model of [MLD](https://github.com/ChenFengYe/motion-latent-diffusion):
 ```bash
-prepare/download_pretrained_models.sh
+bash prepare/download_pretrained_models.sh
 ```
 
 
@@ -105,7 +105,24 @@ Tips:
 ```shell
 bash demo.sh --guidance_scale_style 3.0
 ```
-3. For further mesh visualization, please check [MLD](https://github.com/ChenFengYe/motion-latent-diffusion/tree/main#-visualization) repo.
+3. Generated demo motions are saved as HumanML3D joints in `.npy` format. To fit SMPL
+parameters and render meshes for every valid motion file in a result folder, run:
+
+```shell
+python scripts/convert_hml3d_joints_to_smpl_mesh.py \
+  --input_dir results/mld/CMLD_100STYLE_W_STYLETEXT_CYCLE100_V1_01 \
+  --device 0 \
+  --fps 20
+```
+
+For each `<motion>.npy`, the script writes outputs beside the input file:
+
+- `<motion>_smpl.npz`: SMPL parameters with `poses`, `trans`, `betas`, `gender`, `num_betas`, and `mocap_frame_rate`
+- `<motion>_mesh.npz`: mesh vertices used by the renderer
+- `<motion>_mesh.mp4`: rendered mesh video
+
+Use `--no-render` to skip video rendering, `--overwrite` to refresh existing outputs,
+and `--num_smplify_iters` to shorten or lengthen each SMPLify fit.
 
 ## Train your own SMooDi
 You can train your own model via
